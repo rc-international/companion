@@ -29,6 +29,7 @@ import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
 import { AgentExecutor } from "./agent-executor.js";
 import { migrateCronJobsToAgents } from "./agent-cron-migrator.js";
+import { CompanionRedisPublisher } from "./redis-publisher.js";
 
 import { startPeriodicCheck } from "./update-checker.js";
 import { imagePullManager } from "./image-pull-manager.js";
@@ -56,6 +57,13 @@ const prPoller = new PRPoller(wsBridge);
 const recorder = new RecorderManager();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
 const agentExecutor = new AgentExecutor(launcher, wsBridge);
+
+// ── Redis publisher for tutor engine events ─────────────────────────────────
+const redisPublisher = new CompanionRedisPublisher();
+redisPublisher.connect().catch((err) => {
+  console.warn("[server] Redis publisher failed to connect:", err.message);
+});
+wsBridge.setRedisPublisher(redisPublisher);
 
 // ── Restore persisted sessions from disk ────────────────────────────────────
 wsBridge.setStore(sessionStore);

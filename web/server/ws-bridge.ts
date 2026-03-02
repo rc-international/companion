@@ -19,6 +19,7 @@ import type {
 import type { SessionStore } from "./session-store.js";
 import type { CodexAdapter } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
+import type { CompanionRedisPublisher } from "./redis-publisher.js";
 import { resolveSessionGitInfo } from "./session-git-info.js";
 import type {
   Session,
@@ -77,6 +78,7 @@ export class WsBridge {
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
+  private redisPublisher: CompanionRedisPublisher | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onFirstTurnCompleted: ((sessionId: string, firstUserMessage: string) => void) | null = null;
@@ -138,6 +140,11 @@ export class WsBridge {
   /** Attach a recorder for raw message capture. */
   setRecorder(recorder: RecorderManager): void {
     this.recorder = recorder;
+  }
+
+  /** Attach a Redis publisher for tutor engine events. */
+  setRedisPublisher(publisher: CompanionRedisPublisher): void {
+    this.redisPublisher = publisher;
   }
 
   /** Restore sessions from disk (call once at startup). */
@@ -410,6 +417,14 @@ export class WsBridge {
     console.log(`[ws-bridge] CLI disconnected for session ${sessionId}`);
     this.broadcastToBrowsers(session, { type: "cli_disconnected" });
 
+    // Publish session_exit to Redis for tutor engine
+    this.redisPublisher?.publishOutput(sessionId, {
+      type: "session_exit",
+      sessionId,
+      exitCode: 0,
+      timestamp: Date.now(),
+    });
+
     // Cancel any pending permission requests
     for (const [reqId] of session.pendingPermissions) {
       this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
@@ -608,6 +623,16 @@ export class WsBridge {
       });
       this.persistSession(session);
 
+      // Publish session_start to Redis for tutor engine
+      this.redisPublisher?.publishOutput(session.id, {
+        type: "session_start",
+        sessionId: session.id,
+        channelId: session.id,
+        command: "companion",
+        cwd: session.state.cwd || "",
+        timestamp: Date.now(),
+      });
+
       // Flush any messages queued before CLI was initialized (e.g. user sent
       // a message while the container was still starting up).
       if (session.pendingMessages.length > 0) {
@@ -745,6 +770,37 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+
+    // Publish output_chunk events to Redis for tutor engine
+    if (this.redisPublisher && msg.message?.content) {
+      const ts = Date.now();
+      for (const block of msg.message.content) {
+        let content = "";
+        let chunkType = "text";
+        if (block.type === "text") {
+          content = block.text ?? "";
+          chunkType = "text";
+        } else if (block.type === "tool_use") {
+          content = JSON.stringify(block.input ?? {});
+          chunkType = "tool_call";
+        } else if (block.type === "tool_result") {
+          content = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
+          chunkType = "tool_result";
+        } else if (block.type === "thinking") {
+          content = block.thinking ?? "";
+          chunkType = "thinking";
+        }
+        if (content) {
+          this.redisPublisher.publishOutput(session.id, {
+            type: "output_chunk",
+            sessionId: session.id,
+            content,
+            chunkType,
+            timestamp: ts,
+          });
+        }
+      }
+    }
   }
 
   private handleResultMessage(session: Session, msg: CLIResultMessage) {
@@ -782,6 +838,16 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+
+    // Publish session_exit to Redis for tutor engine when result has an error
+    if (msg.is_error) {
+      this.redisPublisher?.publishOutput(session.id, {
+        type: "session_exit",
+        sessionId: session.id,
+        exitCode: 1,
+        timestamp: Date.now(),
+      });
+    }
 
     // Trigger auto-naming after the first successful result for this session.
     // Note: num_turns counts all internal tool-use turns, so it's typically > 1
@@ -1104,6 +1170,15 @@ export class WsBridge {
     } else {
       content = msg.content;
     }
+
+    // Publish input event to Redis for tutor engine
+    this.redisPublisher?.publishInput(session.id, {
+      type: "input",
+      sessionId: session.id,
+      content: msg.content,
+      userId: "companion",
+      timestamp: Date.now(),
+    });
 
     const ndjson = JSON.stringify({
       type: "user",
