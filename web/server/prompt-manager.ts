@@ -13,6 +13,10 @@ export interface SavedPrompt {
   projectPaths?: string[];
   createdAt: number;
   updatedAt: number;
+  /** Epoch ms when this prompt was last used/invoked */
+  lastUsedAt?: number;
+  /** Total number of times this prompt has been used */
+  useCount?: number;
 }
 
 export interface PromptUpdateFields {
@@ -209,4 +213,44 @@ export function deletePrompt(id: string): boolean {
   if (next.length === prompts.length) return false;
   savePrompts(next);
   return true;
+}
+
+/**
+ * Record that a prompt/skill was used. Increments use_count and updates last_used_at.
+ */
+export function recordPromptUsage(id: string): SavedPrompt | null {
+  const prompts = loadPrompts();
+  const index = prompts.findIndex((p) => p.id === id);
+  if (index < 0) return null;
+
+  prompts[index] = {
+    ...prompts[index],
+    useCount: (prompts[index].useCount ?? 0) + 1,
+    lastUsedAt: Date.now(),
+  };
+  savePrompts(prompts);
+  return prompts[index];
+}
+
+/**
+ * Get prompts that haven't been used recently (stale skills).
+ * Returns prompts that have never been used or weren't used within staleDays.
+ */
+export function getStalePrompts(staleDays: number = 30): SavedPrompt[] {
+  const prompts = loadPrompts();
+  const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000;
+
+  return sortPrompts(
+    prompts.filter((p) => !p.lastUsedAt || p.lastUsedAt < cutoff),
+  );
+}
+
+/**
+ * Get the most frequently used prompts.
+ */
+export function getPopularPrompts(minUseCount: number = 5): SavedPrompt[] {
+  const prompts = loadPrompts();
+  return prompts
+    .filter((p) => (p.useCount ?? 0) >= minUseCount)
+    .sort((a, b) => (b.useCount ?? 0) - (a.useCount ?? 0));
 }

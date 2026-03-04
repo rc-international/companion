@@ -64,4 +64,20 @@ export function registerPromptRoutes(api: Hono): void {
     if (!deleted) return c.json({ error: "Prompt not found" }, 404);
     return c.json({ ok: true });
   });
+
+  api.post("/prompts/:id/usage", (c) => {
+    const prompt = promptManager.recordPromptUsage(c.req.param("id"));
+    if (!prompt) return c.json({ error: "Prompt not found" }, 404);
+    return c.json(prompt);
+  });
+
+  api.get("/prompts/analytics/stale", (c) => {
+    const days = Number(c.req.query("days") ?? 30);
+    return c.json(promptManager.getStalePrompts(days));
+  });
+
+  api.get("/prompts/analytics/popular", (c) => {
+    const min = Number(c.req.query("min") ?? 5);
+    return c.json(promptManager.getPopularPrompts(min));
+  });
 }
