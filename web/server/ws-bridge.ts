@@ -48,6 +48,8 @@ import {
   handleMcpToggle,
   handleMcpReconnect,
   handleMcpSetServers,
+  handleMcpDeleteFileServer,
+  handleMcpEditFileServer,
 } from "./ws-bridge-controls.js";
 import {
   handleSessionSubscribe,
@@ -74,6 +76,8 @@ export class WsBridge {
     "mcp_reconnect",
     "mcp_set_servers",
     "set_ai_validation",
+    "mcp_delete_file_server",
+    "mcp_edit_file_server",
   ]);
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
@@ -1131,6 +1135,37 @@ export class WsBridge {
         handleMcpSetServers(
           (request) => sendControlRequest(session, request, this.sendToCLI.bind(this)),
           msg.servers,
+          () =>
+            handleMcpGetStatus(
+              session,
+              (request, onResponse) => sendControlRequest(session, request, this.sendToCLI.bind(this), onResponse),
+              this.broadcastToBrowsers.bind(this),
+            ),
+        );
+        break;
+
+      case "mcp_delete_file_server":
+        handleMcpDeleteFileServer(
+          session,
+          msg.serverName,
+          msg.scope,
+          (request) => sendControlRequest(session, request, this.sendToCLI.bind(this)),
+          () =>
+            handleMcpGetStatus(
+              session,
+              (request, onResponse) => sendControlRequest(session, request, this.sendToCLI.bind(this), onResponse),
+              this.broadcastToBrowsers.bind(this),
+            ),
+        );
+        break;
+
+      case "mcp_edit_file_server":
+        handleMcpEditFileServer(
+          session,
+          msg.serverName,
+          msg.scope,
+          msg.config as Record<string, unknown>,
+          (request) => sendControlRequest(session, request, this.sendToCLI.bind(this)),
           () =>
             handleMcpGetStatus(
               session,

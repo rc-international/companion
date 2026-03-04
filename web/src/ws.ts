@@ -322,6 +322,8 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "mcp_reconnect",
   "mcp_set_servers",
   "set_ai_validation",
+  "mcp_delete_file_server",
+  "mcp_edit_file_server",
 ]);
 
 function getWsUrl(sessionId: string): string {
@@ -1044,6 +1046,8 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage) {
       case "mcp_reconnect":
       case "mcp_set_servers":
       case "set_ai_validation":
+      case "mcp_delete_file_server":
+      case "mcp_edit_file_server":
         if (!msg.client_msg_id) {
           outgoing = { ...msg, client_msg_id: nextClientMsgId() };
         }
@@ -1080,4 +1084,12 @@ export function sendSetAiValidation(
   },
 ) {
   sendToSession(sessionId, { type: "set_ai_validation", ...settings });
+}
+
+export function sendMcpDeleteFileServer(sessionId: string, serverName: string, scope: string) {
+  sendToSession(sessionId, { type: "mcp_delete_file_server", serverName, scope });
+}
+
+export function sendMcpEditFileServer(sessionId: string, serverName: string, scope: string, config: McpServerConfig) {
+  sendToSession(sessionId, { type: "mcp_edit_file_server", serverName, scope, config });
 }

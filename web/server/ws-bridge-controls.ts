@@ -5,6 +5,12 @@ import type {
   McpServerDetail,
 } from "./session-types.js";
 import type { Session } from "./ws-bridge-types.js";
+import {
+  isFileScope,
+  settingsPathForScope,
+  removeServerFromSettings,
+  updateServerInSettings,
+} from "./claude-settings.js";
 
 export function handleInterrupt(
   session: Session,
@@ -140,4 +146,50 @@ export function handleMcpSetServers(
 ): void {
   sendControlRequestFn({ subtype: "mcp_set_servers", servers });
   setTimeout(refreshStatus, 2000);
+}
+
+export function handleMcpDeleteFileServer(
+  session: Session,
+  serverName: string,
+  scope: string,
+  sendControlRequestFn: (request: Record<string, unknown>) => void,
+  refreshStatus: () => void,
+): void {
+  if (!isFileScope(scope)) {
+    console.warn(`[${session.id.slice(-8)}] mcp_delete_file_server: invalid scope "${scope}"`);
+    return;
+  }
+  const repoRoot = session.state.repo_root || session.state.cwd;
+  const filePath = settingsPathForScope(scope, repoRoot);
+  console.log(`[${session.id.slice(-8)}] Deleting MCP server "${serverName}" from ${scope} settings: ${filePath}`);
+
+  const removed = removeServerFromSettings(filePath, serverName);
+  if (!removed) {
+    console.warn(`[${session.id.slice(-8)}] Server "${serverName}" not found in ${filePath}`);
+  }
+  // Disable in the running session immediately
+  sendControlRequestFn({ subtype: "mcp_toggle", serverName, enabled: false });
+  setTimeout(refreshStatus, 500);
+}
+
+export function handleMcpEditFileServer(
+  session: Session,
+  serverName: string,
+  scope: string,
+  config: Record<string, unknown>,
+  sendControlRequestFn: (request: Record<string, unknown>) => void,
+  refreshStatus: () => void,
+): void {
+  if (!isFileScope(scope)) {
+    console.warn(`[${session.id.slice(-8)}] mcp_edit_file_server: invalid scope "${scope}"`);
+    return;
+  }
+  const repoRoot = session.state.repo_root || session.state.cwd;
+  const filePath = settingsPathForScope(scope, repoRoot);
+  console.log(`[${session.id.slice(-8)}] Editing MCP server "${serverName}" in ${scope} settings: ${filePath}`);
+
+  updateServerInSettings(filePath, serverName, config);
+  // Reconnect so the CLI picks up the new config
+  sendControlRequestFn({ subtype: "mcp_reconnect", serverName });
+  setTimeout(refreshStatus, 1000);
 }
