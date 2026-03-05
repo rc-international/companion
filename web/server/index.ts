@@ -35,6 +35,7 @@ import { startPeriodicCheck } from "./update-checker.js";
 import { imagePullManager } from "./image-pull-manager.js";
 import { isRunningAsService } from "./service.js";
 import { getToken, verifyToken } from "./auth-manager.js";
+import { registerHookRoutes } from "./routes/hook-routes.js";
 import { getCookie } from "hono/cookie";
 import type { SocketData } from "./ws-bridge.js";
 import type { ServerWebSocket } from "bun";
@@ -146,6 +147,9 @@ const app = new Hono();
 
 app.use("/api/*", cors());
 app.route("/api", createRoutes(launcher, wsBridge, sessionStore, worktreeTracker, terminalManager, prPoller, recorder, cronScheduler, agentExecutor));
+
+// Hook gateway — Claude Code hooks POST directly to /hooks/* (not under /api)
+registerHookRoutes(app, { wsBridge });
 
 // Dynamic manifest — embeds auth token in start_url so PWA auto-authenticates
 // on first launch. iOS gives standalone PWAs isolated storage from Safari,
