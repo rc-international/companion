@@ -3,10 +3,15 @@ import type {
   SessionStartInput,
   SessionStartResponse,
   SessionEndInput,
+  PreToolUseInput,
+  PostToolUseInput,
   HookResponse,
 } from "../hook-types.js";
 import { registerSession, getActiveSessions } from "../session-db.js";
 import { handleSessionEnd } from "../hook-handlers/session-end.js";
+import { dispatchPostToolUse } from "../hook-handlers/post-tool-use.js";
+import { dispatchPreToolUse } from "../hook-handlers/pre-tool-use.js";
+import { getTldrClient } from "../tldr-client.js";
 
 export interface HookRouteDeps {
   // biome-ignore lint: hook events use a loose shape to avoid coupling to BrowserIncomingMessage union
@@ -71,6 +76,42 @@ export function registerHookRoutes(app: Hono, deps?: HookRouteDeps): void {
 
     const response = await handleSessionEnd(input);
     broadcast("SessionEnd", input.session_id, { reason: input.reason });
+
+    return c.json(response);
+  });
+
+  app.post("/hooks/post-tool-use", async (c) => {
+    const input = await c.req.json<PostToolUseInput>();
+    console.log(
+      `[hooks] PostToolUse session=${input.session_id.slice(-8)} tool=${input.tool_name}`,
+    );
+
+    const tldr = getTldrClient(input.cwd);
+    const response = await dispatchPostToolUse({ input, tldr });
+
+    broadcast("PostToolUse", input.session_id, {
+      tool_name: input.tool_name,
+      tool_use_id: input.tool_use_id,
+      blocked: response.decision === "block",
+    });
+
+    return c.json(response);
+  });
+
+  app.post("/hooks/pre-tool-use", async (c) => {
+    const input = await c.req.json<PreToolUseInput>();
+    console.log(
+      `[hooks] PreToolUse session=${input.session_id.slice(-8)} tool=${input.tool_name}`,
+    );
+
+    const tldr = getTldrClient(input.cwd);
+    const response = await dispatchPreToolUse({ input, tldr, db: null });
+
+    broadcast("PreToolUse", input.session_id, {
+      tool_name: input.tool_name,
+      tool_use_id: input.tool_use_id,
+      blocked: response.decision === "block",
+    });
 
     return c.json(response);
   });
