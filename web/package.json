@@ -59,6 +59,7 @@
     "fzf": "^0.5.2",
     "hono": "^4.7.0",
     "ioredis": "^5.10.0",
+    "pg": "^8.20.0",
     "posthog-js": "^1.347.2",
     "qrcode": "^1.5.4",
     "ws": "^8.19.0"
@@ -70,6 +71,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/bun": "^1.2.5",
     "@types/diff": "^8.0.0",
+    "@types/pg": "^8.18.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
