@@ -82,7 +82,7 @@ function useServerRestart() {
 }
 
 export default function App() {
-  useServerRestart();
+  // useServerRestart(); // disabled — auto page refresh kills CLI subprocesses
   const isAuthenticated = useStore((s) => s.isAuthenticated);
   const darkMode = useStore((s) => s.darkMode);
   const currentSessionId = useStore((s) => s.currentSessionId);
