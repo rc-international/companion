@@ -6,6 +6,7 @@ import type {
   HookResponse,
 } from "../hook-types.js";
 import { registerSession, getActiveSessions } from "../session-db.js";
+import { handleSessionEnd } from "../hook-handlers/session-end.js";
 
 export interface HookRouteDeps {
   // biome-ignore lint: hook events use a loose shape to avoid coupling to BrowserIncomingMessage union
@@ -68,9 +69,10 @@ export function registerHookRoutes(app: Hono, deps?: HookRouteDeps): void {
       `[hooks] SessionEnd session=${input.session_id.slice(-8)} reason=${input.reason}`,
     );
 
+    const response = await handleSessionEnd(input);
     broadcast("SessionEnd", input.session_id, { reason: input.reason });
 
-    return c.json({} satisfies HookResponse);
+    return c.json(response);
   });
 
   // Catch-all for unknown hook events — must be registered after specific routes
