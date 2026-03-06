@@ -940,14 +940,15 @@ export function connectSession(sessionId: string) {
       clearTimeout(timer);
       reconnectTimers.delete(sessionId);
     }
-    // Start keepalive ping every 30s to prevent idle timeout
+    // Start keepalive ping every 15s to prevent idle timeout
+    // (browsers throttle setInterval in background tabs, so shorter is safer)
     const existingPing = pingTimers.get(sessionId);
     if (existingPing) clearInterval(existingPing);
     pingTimers.set(sessionId, setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "ping" }));
       }
-    }, 30_000));
+    }, 15_000));
   };
 
   ws.onmessage = (event) => handleMessage(sessionId, event);
@@ -1092,4 +1093,29 @@ export function sendMcpDeleteFileServer(sessionId: string, serverName: string, s
 
 export function sendMcpEditFileServer(sessionId: string, serverName: string, scope: string, config: McpServerConfig) {
   sendToSession(sessionId, { type: "mcp_edit_file_server", serverName, scope, config });
+}
+
+// ── Visibility-based reconnect ──────────────────────────────────────────────
+// When the tab regains focus, immediately reconnect any disconnected sessions
+// instead of waiting for the 2s reconnect timer. Browsers throttle timers in
+// background tabs, so connections may have silently died while the tab was hidden.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    const store = useStore.getState();
+    for (const [sessionId, status] of store.connectionStatus) {
+      if (status === "disconnected" && !sockets.has(sessionId)) {
+        // Clear any pending reconnect timer and reconnect immediately
+        const timer = reconnectTimers.get(sessionId);
+        if (timer) {
+          clearTimeout(timer);
+          reconnectTimers.delete(sessionId);
+        }
+        const sdkSession = store.sdkSessions.find((s) => s.sessionId === sessionId);
+        if (sdkSession && !sdkSession.archived) {
+          connectSession(sessionId);
+        }
+      }
+    }
+  });
 }

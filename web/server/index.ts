@@ -47,7 +47,7 @@ import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
-const idleTimeoutSeconds = Number(process.env.COMPANION_IDLE_TIMEOUT_SECONDS || "120");
+const idleTimeoutSeconds = Number(process.env.COMPANION_IDLE_TIMEOUT_SECONDS || "0");
 const sessionStore = new SessionStore(process.env.COMPANION_SESSION_DIR);
 const wsBridge = new WsBridge();
 const launcher = new CliLauncher(port);
@@ -302,6 +302,9 @@ console.log(`  Browser WebSocket: ws://localhost:${server.port}/ws/browser/:sess
 if (process.env.NODE_ENV !== "production") {
   console.log("Dev mode: frontend at http://localhost:5174");
 }
+
+// ── Server-side keepalive pings ──────────────────────────────────────────────
+wsBridge.startKeepalive();
 
 // ── Cron scheduler ──────────────────────────────────────────────────────────
 cronScheduler.startAll();

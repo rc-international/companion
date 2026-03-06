@@ -79,6 +79,7 @@ export class WsBridge {
     "mcp_delete_file_server",
     "mcp_edit_file_server",
   ]);
+  private static readonly SERVER_KEEPALIVE_INTERVAL_MS = 30_000;
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
@@ -89,6 +90,7 @@ export class WsBridge {
   private autoNamingAttempted = new Set<string>();
   private userMsgCounter = 0;
   private onGitInfoReady: ((sessionId: string, cwd: string, branch: string) => void) | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly GIT_SESSION_KEYS: GitSessionKey[] = [
     "git_branch",
     "is_worktree",
@@ -97,6 +99,36 @@ export class WsBridge {
     "git_ahead",
     "git_behind",
   ];
+
+  /**
+   * Start server-side keepalive pings to all connected WebSockets.
+   * Prevents Bun's idleTimeout (and intermediate proxies like Tailscale)
+   * from closing idle connections during long-running CLI operations.
+   */
+  startKeepalive(): void {
+    if (this.keepaliveTimer) return;
+    this.keepaliveTimer = setInterval(() => {
+      const ping = JSON.stringify({ type: "ping" });
+      for (const session of this.sessions.values()) {
+        // Ping CLI socket
+        if (session.cliSocket) {
+          try { session.cliSocket.send(ping); } catch {}
+        }
+        // Ping all browser sockets
+        for (const ws of session.browserSockets) {
+          try { ws.send(ping); } catch {}
+        }
+      }
+    }, WsBridge.SERVER_KEEPALIVE_INTERVAL_MS);
+  }
+
+  /** Stop server-side keepalive pings. */
+  stopKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
 
   /** Register a callback for when we learn the CLI's internal session ID. */
   onCLISessionIdReceived(cb: (sessionId: string, cliSessionId: string) => void): void {
