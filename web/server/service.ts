@@ -103,6 +103,8 @@ export function generatePlist(opts: PlistOptions): string {
         <string>${port}</string>
         <key>HOME</key>
         <string>${home}</string>
+        <key>COMPANION_SESSION_DIR</key>
+        <string>${home}/.companion/sessions</string>
         <key>PATH</key>
         <string>${opts.path || getServicePath()}</string>
     </dict>
@@ -144,6 +146,7 @@ StandardError=append:${STDERR_LOG}
 Environment=NODE_ENV=production
 Environment=PORT=${port}
 Environment=HOME=${home}
+Environment=COMPANION_SESSION_DIR=${home}/.companion/sessions
 Environment=PATH=${opts.path || getServicePath()}
 
 [Install]
