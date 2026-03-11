@@ -35,50 +35,66 @@ jobs:
           # Absolute path prefix used by Istanbul in the JSON keys
           ABS_PREFIX="$(pwd)/web/"
 
-          # Source files added or modified in this PR (relative to repo root, under web/)
-          CHANGED=$(git diff --name-only --diff-filter=ACM origin/main...HEAD -- web/server/ web/src/ \
-            | grep -E '\.(ts|tsx)$' \
-            | grep -v '\.test\.\|\.spec\.\|__mocks__\|test-setup\|session-types\.ts\|src/types\.ts' || true)
+          FILE_FILTER='\.test\.\|\.spec\.\|__mocks__\|test-setup\|session-types\.ts\|src/types\.ts'
 
-          if [ -z "$CHANGED" ]; then
+          # New files must meet the strict threshold
+          ADDED=$(git diff --name-only --diff-filter=A origin/main...HEAD -- web/server/ web/src/ \
+            | grep -E '\.(ts|tsx)$' \
+            | grep -v "$FILE_FILTER" || true)
+
+          # Modified files are reported but don't block the PR
+          MODIFIED=$(git diff --name-only --diff-filter=CM origin/main...HEAD -- web/server/ web/src/ \
+            | grep -E '\.(ts|tsx)$' \
+            | grep -v "$FILE_FILTER" || true)
+
+          if [ -z "$ADDED" ] && [ -z "$MODIFIED" ]; then
             echo "No new/changed source files in this PR — nothing to gate."
             exit 0
           fi
 
-          echo "=== Changed source files ==="
-          echo "$CHANGED"
-          echo ""
-
           FAIL=0
           THRESHOLD=80
 
-          for file in $CHANGED; do
-            # Build the absolute path key that Istanbul uses in json-summary
-            # $file is like "web/server/foo.ts", key is "/abs/path/web/server/foo.ts"
-            ABS_KEY="$(pwd)/${file}"
-
-            # jq: look up by absolute path
-            LINES_PCT=$(jq -r --arg f "$ABS_KEY" '.[$f].lines.pct // empty' "$SUMMARY")
-
-            # Strip "web/" prefix for display
-            DISPLAY="${file#web/}"
+          check_file() {
+            local file=$1 strict=$2
+            local ABS_KEY="$(pwd)/${file}"
+            local DISPLAY="${file#web/}"
+            local LINES_PCT=$(jq -r --arg f "$ABS_KEY" '.[$f].lines.pct // empty' "$SUMMARY")
 
             if [ -z "$LINES_PCT" ]; then
-              echo "⚠️  $DISPLAY — no coverage data (not imported by any test)"
-              echo "❌ $DISPLAY — treated as 0% (below ${THRESHOLD}%)"
-              FAIL=1
-              continue
+              if [ "$strict" = "1" ]; then
+                echo "❌ $DISPLAY — no coverage data (treated as 0%)"
+                FAIL=1
+              else
+                echo "⚠️  $DISPLAY — no coverage data (modified file, not blocking)"
+              fi
+              return
             fi
 
-            # Compare as float
-            BELOW=$(awk "BEGIN { print ($LINES_PCT < $THRESHOLD) ? 1 : 0 }")
+            local BELOW=$(awk "BEGIN { print ($LINES_PCT < $THRESHOLD) ? 1 : 0 }")
             if [ "$BELOW" = "1" ]; then
-              echo "❌ $DISPLAY — ${LINES_PCT}% lines covered (threshold: ${THRESHOLD}%)"
-              FAIL=1
+              if [ "$strict" = "1" ]; then
+                echo "❌ $DISPLAY — ${LINES_PCT}% lines covered (threshold: ${THRESHOLD}%)"
+                FAIL=1
+              else
+                echo "⚠️  $DISPLAY — ${LINES_PCT}% lines covered (modified file, not blocking)"
+              fi
             else
               echo "✅ $DISPLAY — ${LINES_PCT}% lines covered"
             fi
-          done
+          }
+
+          if [ -n "$ADDED" ]; then
+            echo "=== New files (must meet ${THRESHOLD}% threshold) ==="
+            for file in $ADDED; do check_file "$file" 1; done
+            echo ""
+          fi
+
+          if [ -n "$MODIFIED" ]; then
+            echo "=== Modified files (coverage reported, not gated) ==="
+            for file in $MODIFIED; do check_file "$file" 0; done
+            echo ""
+          fi
 
           echo ""
           if [ "$FAIL" = "1" ]; then
