@@ -1,0 +1,34 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "web/**/*.{ts,tsx,js,jsx,json}"
+      run: cd web && npx @biomejs/biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+    markdown-lint:
+      glob: "*.md"
+      run: npx markdownlint-cli2 {staged_files}
+    shellcheck:
+      glob: "*.sh"
+      run: 'command -v shellcheck >/dev/null && shellcheck --severity=warning {staged_files} || echo "shellcheck not installed, skipping"'
+    typos:
+      run: 'command -v typos >/dev/null && typos {staged_files} || echo "typos not installed, skipping"'
+    typecheck:
+      glob: "web/**/*.{ts,tsx}"
+      run: cd web && timeout 30 bun run typecheck
+    test-suite:
+      glob: "web/**/*.{ts,tsx}"
+      run: cd web && timeout 120 bun run test
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  commands:
+    semgrep:
+      run: 'command -v semgrep >/dev/null && semgrep --config auto --severity ERROR --quiet web/server/ web/src/ || echo "semgrep not installed, skipping"'
+    security-audit:
+      run: cd web && bun audit 2>/dev/null || true
