@@ -92,9 +92,26 @@ wsBridge.onSessionGitInfoReadyCallback((sessionId, cwd, branch) => {
 });
 
 // Auto-relaunch CLI when a browser connects to a session with no CLI
-const relaunchingSet = new Set<string>();
+// Cooldown: only one relaunch per session per RELAUNCH_COOLDOWN_MS window.
+// Claimed immediately (before any async gap) to prevent concurrent browser tabs
+// from all passing the guard before any reaches the async relaunch call.
+const RELAUNCH_COOLDOWN_MS = 10_000;
+const relaunchTimestamps = new Map<string, number>();
+function isRelaunchSuppressed(sessionId: string): boolean {
+  const lastRelaunch = relaunchTimestamps.get(sessionId) ?? 0;
+  const now = Date.now();
+  if (now - lastRelaunch < RELAUNCH_COOLDOWN_MS) {
+    console.log(
+      `[server] Suppressing duplicate relaunch for session ${sessionId} ` +
+      `(cooldown: ${Math.round((RELAUNCH_COOLDOWN_MS - (now - lastRelaunch)) / 1000)}s remaining)`
+    );
+    return true;
+  }
+  relaunchTimestamps.set(sessionId, now);
+  return false;
+}
 wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
-  if (relaunchingSet.has(sessionId)) return;
+  if (isRelaunchSuppressed(sessionId)) return;
   const info = launcher.getSession(sessionId);
   if (info?.archived) return;
   if (!info) {
@@ -105,7 +122,7 @@ wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
     const state = bridgeSession?.state;
     if (!state?.cwd) {
       console.log(`[server] Session ${sessionId} orphaned with no cwd, cannot recover`);
-      relaunchingSet.add(sessionId);
+      relaunchTimestamps.set(sessionId, Date.now());
       wsBridge.broadcastToSession(sessionId, {
         type: "error",
         message: "This session's backend process is gone and cannot be relaunched (no working directory). Please create a new session.",
@@ -129,7 +146,7 @@ wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
   }
   const current = launcher.getSession(sessionId);
   if (current && current.state !== "starting") {
-    relaunchingSet.add(sessionId);
+    relaunchTimestamps.set(sessionId, Date.now());
     console.log(`[server] Auto-relaunching CLI for session ${sessionId}`);
     try {
       const result = await launcher.relaunch(sessionId);
@@ -137,7 +154,7 @@ wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
         wsBridge.broadcastToSession(sessionId, { type: "error", message: result.error });
       }
     } finally {
-      setTimeout(() => relaunchingSet.delete(sessionId), 5000);
+      // Cooldown naturally expires after RELAUNCH_COOLDOWN_MS; no cleanup needed
     }
   }
 });
